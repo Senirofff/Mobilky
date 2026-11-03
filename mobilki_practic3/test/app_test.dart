@@ -58,7 +58,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(currentTab(), 0);
     expect(tester.takeException(), isNull);
-    // Navigation must reuse screen widgets instead of rebuilding their contents.
     expect(
       tester.widget(find.byType(AnalysisScreen, skipOffstage: false)),
       same(analysis),

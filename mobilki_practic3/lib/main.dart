@@ -246,7 +246,6 @@ class _RallyHomeState extends State<RallyHome> {
   );
 }
 
-// Keep forms, results and the vertical scroll position when swiping between tabs.
 class _TabPage extends StatefulWidget {
   const _TabPage({required this.index, required this.child});
   final int index;
