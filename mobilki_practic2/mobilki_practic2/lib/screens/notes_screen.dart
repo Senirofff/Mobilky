@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+// context.read/context.watch приходят из flutter_bloc: он реэкспортирует
+// extensions пакета provider, поэтому отдельный импорт provider не нужен.
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../cubit/theme_cubit.dart';
 import '../models/note.dart';
-import '../theme/app_theme.dart';
+import '../providers/notes_provider.dart';
 import '../utils/format.dart';
 import '../widgets/empty_notes.dart';
 import '../widgets/note_card.dart';
@@ -19,9 +23,6 @@ class _NotesScreenState extends State<NotesScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
-
-  /// Заметки в памяти; новые добавляются в начало списка.
-  final List<Note> _notes = [];
 
   String _displayText = '';
   int? _editingIndex;
@@ -50,16 +51,21 @@ class _NotesScreenState extends State<NotesScreen> {
   // --- Действия с заметками -------------------------------------------------
 
   /// Кнопка «Сохранить»: добавляет новую заметку или сохраняет правку.
+  ///
+  /// Данные меняет провайдер (он же сохраняет их в хранилище), а анимацию
+  /// списка запускает экран — поэтому вставка и удаление остаются парой
+  /// действий в одном обработчике.
   void _submit() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
+    final provider = context.read<NotesProvider>();
     final editingIndex = _editingIndex;
     if (editingIndex != null) {
-      _notes[editingIndex] = Note(text);
+      provider.update(editingIndex, text);
       setState(() => _editingIndex = null);
     } else {
-      _notes.insert(0, Note(text));
+      provider.add(text);
       _listKey.currentState?.insertItem(0);
       _scrollToTop();
     }
@@ -69,8 +75,11 @@ class _NotesScreenState extends State<NotesScreen> {
 
   /// Текст заметки переносится в то же поле, где она была создана.
   void _startEdit(int index) {
+    final notes = context.read<NotesProvider>().notes;
+    if (index < 0 || index >= notes.length) return;
+
     setState(() => _editingIndex = index);
-    _controller.text = _notes[index].text;
+    _controller.text = notes[index].text;
     _controller.selection = TextSelection.collapsed(
       offset: _controller.text.length,
     );
@@ -82,9 +91,12 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   void _deleteNote(int index) {
-    if (index < 0 || index >= _notes.length) return;
+    final provider = context.read<NotesProvider>();
+    final notes = provider.notes;
+    if (index < 0 || index >= notes.length) return;
 
-    final note = _notes.removeAt(index);
+    final note = notes[index];
+    provider.remove(index);
     _listKey.currentState?.removeItem(
       index,
       (context, animation) => NoteCard(
@@ -126,19 +138,43 @@ class _NotesScreenState extends State<NotesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Список берём у провайдера: при изменении заметок экран перестраивается
+    // сам, а сами заметки уже лежат в хранилище.
+    final notes = context.watch<NotesProvider>().notes;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Мои заметки'),
         actions: [
-          if (_notes.isNotEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Text(
-                  '${_notes.length} ${pluralize(_notes.length, 'заметка', 'заметки', 'заметок')}',
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 13,
+          BlocBuilder<ThemeCubit, ThemeState>(
+            // Иконка зависит от состояния, поэтому перестраивается вместе с ним.
+            builder: (context, state) => IconButton(
+              tooltip: state.isDarkTheme
+                  ? 'Включить светлую тему'
+                  : 'Включить тёмную тему',
+              icon: Icon(
+                state.isDarkTheme
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+              ),
+              color: scheme.onSurfaceVariant,
+              onPressed: context.read<ThemeCubit>().toggleTheme,
+            ),
+          ),
+          if (notes.isNotEmpty)
+            Flexible(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Text(
+                    '${notes.length} ${pluralize(notes.length, 'заметка', 'заметки', 'заметок')}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
@@ -157,13 +193,13 @@ class _NotesScreenState extends State<NotesScreen> {
             onSubmit: _submit,
             onCancel: _cancelEdit,
           ),
-          Expanded(child: _buildNotes()),
+          Expanded(child: _buildNotes(notes)),
         ],
       ),
     );
   }
 
-  Widget _buildNotes() {
+  Widget _buildNotes(List<Note> notes) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -172,16 +208,16 @@ class _NotesScreenState extends State<NotesScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           itemBuilder: (context, index, animation) {
-            if (index >= _notes.length) return const SizedBox.shrink();
+            if (index >= notes.length) return const SizedBox.shrink();
             return NoteCard(
-              note: _notes[index],
+              note: notes[index],
               animation: animation,
               onEdit: () => _startEdit(index),
               onDelete: () => _deleteNote(index),
             );
           },
         ),
-        if (_notes.isEmpty)
+        if (notes.isEmpty)
           const Positioned.fill(child: IgnorePointer(child: EmptyNotes())),
       ],
     );

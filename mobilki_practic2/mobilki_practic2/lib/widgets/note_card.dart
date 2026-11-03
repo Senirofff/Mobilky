@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/note.dart';
-import '../theme/app_theme.dart';
 
 /// Карточка заметки в списке.
 ///
@@ -23,6 +22,10 @@ class NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return SizeTransition(
       sizeFactor: animation,
       alignment: Alignment.topCenter,
@@ -32,11 +35,12 @@ class NoteCard extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            color: scheme.surface,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
+                // На тёмном фоне тень заметнее, на светлом — почти незаметна.
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -47,8 +51,8 @@ class NoteCard extends StatelessWidget {
             children: [
               Text(
                 note.text,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: scheme.onSurface,
                   fontSize: 16,
                   height: 1.4,
                 ),
@@ -61,14 +65,14 @@ class NoteCard extends StatelessWidget {
                     onPressed: onEdit,
                     tooltip: 'Редактировать',
                     iconSize: 20,
-                    color: AppColors.iconMuted,
+                    color: scheme.outline,
                     icon: const Icon(Icons.create_outlined),
                   ),
                   IconButton(
                     onPressed: onDelete,
                     tooltip: 'Удалить',
                     iconSize: 20,
-                    color: AppColors.danger,
+                    color: scheme.error,
                     icon: const Icon(Icons.delete_outline),
                   ),
                 ],

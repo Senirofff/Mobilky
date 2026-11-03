@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-
 /// Поле ввода новой заметки и кнопка «Сохранить».
 ///
 /// Поле одно на всё приложение: и новые заметки, и правки вводятся здесь.
@@ -28,11 +26,13 @@ class NoteComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 16),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -43,11 +43,11 @@ class NoteComposer extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Редактирование заметки',
                       style: TextStyle(
-                        color: AppColors.accent,
+                        color: scheme.primary,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -70,15 +70,15 @@ class NoteComposer extends StatelessWidget {
             keyboardType: TextInputType.multiline,
             textInputAction: TextInputAction.newline,
             textCapitalization: TextCapitalization.sentences,
-            cursorColor: AppColors.accent,
-            style: const TextStyle(
-              color: Colors.white,
+            cursorColor: scheme.primary,
+            style: TextStyle(
+              color: scheme.onSurface,
               fontSize: 16,
               height: 1.4,
             ),
             decoration: InputDecoration(
               hintText: hintText,
-              hintStyle: const TextStyle(color: AppColors.textMuted),
+              hintStyle: TextStyle(color: scheme.onSurfaceVariant),
               border: InputBorder.none,
               contentPadding: EdgeInsets.zero,
             ),
