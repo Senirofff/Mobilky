@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-// context.read/context.watch приходят из flutter_bloc: он реэкспортирует
-// extensions пакета provider, поэтому отдельный импорт provider не нужен.
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../cubit/theme_cubit.dart';
@@ -10,8 +8,8 @@ import '../utils/format.dart';
 import '../widgets/empty_notes.dart';
 import '../widgets/note_card.dart';
 import '../widgets/note_composer.dart';
+import 'note_detail_screen.dart';
 
-/// Экран «Заметки»: одно поле ввода, кнопка «Сохранить» и список заметок.
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
 
@@ -20,206 +18,286 @@ class NotesScreen extends StatefulWidget {
 }
 
 class _NotesScreenState extends State<NotesScreen> {
-  final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
-
-  String _displayText = '';
-  int? _editingIndex;
-
-  bool get _isEditing => _editingIndex != null;
-  bool get _canSubmit => _displayText.trim().isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    // Слушаем контроллер, чтобы включать кнопку «Сохранить»,
-    // как только в поле появился текст.
-    _controller.addListener(() {
-      setState(() => _displayText = _controller.text);
-    });
-  }
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+  final _inputFocus = FocusNode();
+  final _listKey = GlobalKey<SliverAnimatedListState>();
+  int? _editingId;
 
   @override
   void dispose() {
-    // Контроллер обязательно освобождаем, иначе будет утечка памяти.
     _controller.dispose();
     _scrollController.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
-  // --- Действия с заметками -------------------------------------------------
-
-  /// Кнопка «Сохранить»: добавляет новую заметку или сохраняет правку.
-  ///
-  /// Данные меняет провайдер (он же сохраняет их в хранилище), а анимацию
-  /// списка запускает экран — поэтому вставка и удаление остаются парой
-  /// действий в одном обработчике.
   void _submit() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-
     final provider = context.read<NotesProvider>();
-    final editingIndex = _editingIndex;
-    if (editingIndex != null) {
-      provider.update(editingIndex, text);
-      setState(() => _editingIndex = null);
+    if (_editingId != null) {
+      final index = provider.notes.indexWhere((note) => note.id == _editingId);
+      if (index < 0) return;
+      provider.update(index, text);
     } else {
-      provider.add(text);
-      _listKey.currentState?.insertItem(0);
-      _scrollToTop();
+      final index = provider.add(text);
+      if (index != null) _listKey.currentState?.insertItem(index);
     }
-
     _clearInput();
   }
 
-  /// Текст заметки переносится в то же поле, где она была создана.
-  void _startEdit(int index) {
-    final notes = context.read<NotesProvider>().notes;
-    if (index < 0 || index >= notes.length) return;
-
-    setState(() => _editingIndex = index);
-    _controller.text = notes[index].text;
-    _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
+  Future<void> _openNote(Note note) async {
+    FocusScope.of(context).unfocus();
+    final edit = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => NoteDetailScreen(note: note)),
     );
+    if (!mounted || edit != true) return;
+    _startEdit(note);
   }
 
-  void _cancelEdit() {
-    setState(() => _editingIndex = null);
-    _clearInput();
-  }
-
-  void _deleteNote(int index) {
-    final provider = context.read<NotesProvider>();
-    final notes = provider.notes;
-    if (index < 0 || index >= notes.length) return;
-
-    final note = notes[index];
-    provider.remove(index);
-    _listKey.currentState?.removeItem(
-      index,
-      (context, animation) => NoteCard(
-        note: note,
-        animation: animation,
-        onEdit: () {},
-        onDelete: () {},
-      ),
-    );
-
-    // Если правилась удалённая или соседняя заметка — поправляем индекс.
-    final editingIndex = _editingIndex;
-    if (editingIndex != null) {
-      if (editingIndex == index) {
-        _cancelEdit();
-      } else if (editingIndex > index) {
-        setState(() => _editingIndex = editingIndex - 1);
-      }
+  void _startEdit(Note note) {
+    // Не затираем несохранённый черновик другим текстом.
+    if (_controller.text.trim().isNotEmpty && _editingId != note.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Сначала сохраните или очистите текущий текст'),
+        ),
+      );
+      return;
     }
-
-    setState(() {});
+    if (_editingId != note.id) {
+      setState(() => _editingId = note.id);
+      _controller.text = note.text;
+      _controller.selection = TextSelection.collapsed(
+        offset: _controller.text.length,
+      );
+    }
+    _inputFocus.requestFocus();
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _clearInput() {
+    setState(() => _editingId = null);
     _controller.clear();
     FocusScope.of(context).unfocus();
   }
 
-  void _scrollToTop() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
+  void _setImportant(int id, bool isImportant) {
+    final provider = context.read<NotesProvider>();
+    final oldIndex = provider.notes.indexWhere((note) => note.id == id);
+    if (oldIndex < 0 || provider.notes[oldIndex].isImportant == isImportant) {
+      return;
+    }
+
+    provider.setImportant(id, isImportant);
+    final newIndex = provider.notes.indexWhere((note) => note.id == id);
+    if (oldIndex == newIndex) return;
+
+    // Синхронизируем позиции AnimatedList с новым порядком провайдера.
+    final list = _listKey.currentState;
+    list?.removeItem(
+      oldIndex,
+      (_, _) => const SizedBox.shrink(),
+      duration: Duration.zero,
     );
+    list?.insertItem(newIndex);
   }
 
-  // --- Интерфейс ------------------------------------------------------------
+  Future<void> _deleteNote(Note note) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить заметку?'),
+        content: const Text('Восстановить её после удаления не получится.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    _removeNote(note);
+  }
+
+  /// Свайп удаляет сразу; удаление из меню запрашивает подтверждение.
+  void _removeNote(Note note) {
+    final provider = context.read<NotesProvider>();
+    final index = provider.notes.indexWhere((item) => item.id == note.id);
+    if (index < 0) return;
+    provider.remove(index);
+    _listKey.currentState?.removeItem(
+      index,
+      (context, animation) => IgnorePointer(
+        child: NoteCard(
+          note: note,
+          animation: animation,
+          onTap: () {},
+          onMarkImportant: () {},
+          onEdit: () {},
+          onDelete: () {},
+        ),
+      ),
+    );
+    if (_editingId == note.id) _clearInput();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // Список берём у провайдера: при изменении заметок экран перестраивается
-    // сам, а сами заметки уже лежат в хранилище.
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final notes = context.watch<NotesProvider>().notes;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Мои заметки'),
-        actions: [
-          BlocBuilder<ThemeCubit, ThemeState>(
-            // Иконка зависит от состояния, поэтому перестраивается вместе с ним.
-            builder: (context, state) => IconButton(
-              tooltip: state.isDarkTheme
-                  ? 'Включить светлую тему'
-                  : 'Включить тёмную тему',
-              icon: Icon(
-                state.isDarkTheme
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
-              ),
-              color: scheme.onSurfaceVariant,
-              onPressed: context.read<ThemeCubit>().toggleTheme,
-            ),
-          ),
-          if (notes.isNotEmpty)
-            Flexible(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 16),
-                  child: Text(
-                    '${notes.length} ${pluralize(notes.length, 'заметка', 'заметки', 'заметок')}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 13,
+      body: SafeArea(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: CustomScrollView(
+              controller: _scrollController,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 16, 16),
+                  sliver: SliverToBoxAdapter(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Мои заметки',
+                                style: theme.textTheme.titleLarge,
+                              ),
+                              if (notes.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${notes.length} ${pluralize(notes.length, 'заметка', 'заметки', 'заметок')}',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        BlocBuilder<ThemeCubit, ThemeState>(
+                          builder: (context, state) => IconButton.filledTonal(
+                            tooltip: state.isDarkTheme
+                                ? 'Включить светлую тему'
+                                : 'Включить тёмную тему',
+                            onPressed: context.read<ThemeCubit>().toggleTheme,
+                            icon: Icon(
+                              state.isDarkTheme
+                                  ? Icons.light_mode_outlined
+                                  : Icons.dark_mode_outlined,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
+                SliverToBoxAdapter(
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _controller,
+                    builder: (context, value, _) => NoteComposer(
+                      controller: _controller,
+                      focusNode: _inputFocus,
+                      hintText: _editingId != null
+                          ? 'Измените текст заметки…'
+                          : 'Введите текст заметки',
+                      isEditing: _editingId != null,
+                      canSubmit: value.text.trim().isNotEmpty,
+                      onSubmit: _submit,
+                      onCancel: _clearInput,
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  sliver: SliverAnimatedList(
+                    key: _listKey,
+                    initialItemCount: notes.length,
+                    itemBuilder: (context, index, animation) {
+                      final note = notes[index];
+                      return Dismissible(
+                        key: ValueKey(note.id),
+                        direction: DismissDirection.horizontal,
+                        resizeDuration: null,
+                        background: _swipeBackground(
+                          alignment: Alignment.centerLeft,
+                          color: scheme.primaryContainer,
+                          foreground: scheme.onPrimaryContainer,
+                          icon: Icons.star_outline_rounded,
+                        ),
+                        secondaryBackground: _swipeBackground(
+                          alignment: Alignment.centerRight,
+                          color: scheme.errorContainer,
+                          foreground: scheme.onErrorContainer,
+                          icon: Icons.delete_outline_rounded,
+                        ),
+                        confirmDismiss: (direction) async {
+                          if (direction == DismissDirection.startToEnd) {
+                            _setImportant(note.id, false);
+                            return false;
+                          }
+                          return true;
+                        },
+                        onDismissed: (_) => _removeNote(note),
+                        child: NoteCard(
+                          note: note,
+                          animation: animation,
+                          onTap: () => _openNote(note),
+                          onMarkImportant: () => _setImportant(note.id, true),
+                          onEdit: () => _startEdit(note),
+                          onDelete: () => _deleteNote(note),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (notes.isEmpty)
+                  const SliverToBoxAdapter(child: EmptyNotes()),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
             ),
-        ],
-      ),
-      body: Column(
-        children: [
-          NoteComposer(
-            controller: _controller,
-            hintText: _isEditing
-                ? 'Измените текст заметки'
-                : 'Введите текст заметки',
-            isEditing: _isEditing,
-            canSubmit: _canSubmit,
-            onSubmit: _submit,
-            onCancel: _cancelEdit,
           ),
-          Expanded(child: _buildNotes(notes)),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildNotes(List<Note> notes) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        AnimatedList(
-          key: _listKey,
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          itemBuilder: (context, index, animation) {
-            if (index >= notes.length) return const SizedBox.shrink();
-            return NoteCard(
-              note: notes[index],
-              animation: animation,
-              onEdit: () => _startEdit(index),
-              onDelete: () => _deleteNote(index),
-            );
-          },
-        ),
-        if (notes.isEmpty)
-          const Positioned.fill(child: IgnorePointer(child: EmptyNotes())),
-      ],
+  Widget _swipeBackground({
+    required Alignment alignment,
+    required Color color,
+    required Color foreground,
+    required IconData icon,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      alignment: alignment,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Icon(icon, color: foreground),
     );
   }
 }

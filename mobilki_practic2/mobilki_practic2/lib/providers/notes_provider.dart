@@ -27,19 +27,26 @@ class NotesProvider extends ChangeNotifier {
 
   /// Загружает сохранённые заметки (вызывается до `runApp`).
   void load() {
+    final savedNotes = _repository.load();
+    final regularNotes = savedNotes.where((note) => !note.isImportant).toList()
+      ..sort((a, b) => b.id.compareTo(a.id));
     _notes
       ..clear()
-      ..addAll(_repository.load());
+      ..addAll(savedNotes.where((note) => note.isImportant))
+      ..addAll(regularNotes);
     notifyListeners();
   }
 
-  /// Добавляет заметку в начало списка — новые заметки всегда сверху.
-  void add(String text) {
+  /// Добавляет новую запись после закреплённых и возвращает её позицию.
+  int? add(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) return null;
 
-    _notes.insert(0, Note(id: _newId(), text: trimmed));
+    final note = Note(id: _newId(), text: trimmed);
+    final index = _regularInsertionIndex(note.id);
+    _notes.insert(index, note);
     _afterChange();
+    return index;
   }
 
   /// Заменяет текст заметки, сохраняя её идентификатор.
@@ -47,8 +54,27 @@ class NotesProvider extends ChangeNotifier {
     final trimmed = text.trim();
     if (!_isValidIndex(index) || trimmed.isEmpty) return;
 
-    _notes[index] = Note(id: _notes[index].id, text: trimmed);
+    _notes[index] = _notes[index].copyWith(text: trimmed);
     _afterChange();
+  }
+
+  /// Меняет важность по идентификатору, независимо от позиции в списке.
+  void setImportant(int id, bool isImportant) {
+    final index = _notes.indexWhere((note) => note.id == id);
+    if (index < 0 || _notes[index].isImportant == isImportant) return;
+
+    final note = _notes.removeAt(index).copyWith(isImportant: isImportant);
+    // Закреплённая заметка становится первой, а после снятия закрепления
+    // возвращается на своё место по времени создания среди обычных записей.
+    _notes.insert(isImportant ? 0 : _regularInsertionIndex(note.id), note);
+    _afterChange();
+  }
+
+  int _regularInsertionIndex(int id) {
+    final index = _notes.indexWhere(
+      (note) => !note.isImportant && note.id < id,
+    );
+    return index < 0 ? _notes.length : index;
   }
 
   /// Удаляет заметку по её позиции в списке.

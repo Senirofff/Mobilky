@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Поле ввода новой заметки и кнопка «Сохранить».
-///
-/// Поле одно на всё приложение: и новые заметки, и правки вводятся здесь.
 class NoteComposer extends StatelessWidget {
   const NoteComposer({
     super.key,
     required this.controller,
+    required this.focusNode,
     required this.hintText,
     required this.isEditing,
     required this.canSubmit,
@@ -15,67 +13,39 @@ class NoteComposer extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String hintText;
-
-  /// Редактируется существующая заметка: показываем подпись и «Отмена».
   final bool isEditing;
   final bool canSubmit;
-
   final VoidCallback onSubmit;
   final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isEditing ? scheme.primary : scheme.outlineVariant,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isEditing)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Редактирование заметки',
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: onCancel,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    child: const Text('Отмена'),
-                  ),
-                ],
-              ),
-            ),
           TextField(
             controller: controller,
+            focusNode: focusNode,
             minLines: 1,
             maxLines: 4,
             keyboardType: TextInputType.multiline,
             textInputAction: TextInputAction.newline,
             textCapitalization: TextCapitalization.sentences,
-            cursorColor: scheme.primary,
-            style: TextStyle(
-              color: scheme.onSurface,
-              fontSize: 16,
-              height: 1.4,
-            ),
+            style: theme.textTheme.bodyLarge,
             decoration: InputDecoration(
               hintText: hintText,
               hintStyle: TextStyle(color: scheme.onSurfaceVariant),
@@ -83,11 +53,25 @@ class NoteComposer extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
             ),
           ),
+          const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: canSubmit ? onSubmit : null,
-              child: const Text('Сохранить'),
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (isEditing || canSubmit)
+                  TextButton(
+                    onPressed: onCancel,
+                    child: Text(isEditing ? 'Отмена' : 'Очистить'),
+                  ),
+                FilledButton.icon(
+                  onPressed: canSubmit ? onSubmit : null,
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  label: const Text('Сохранить'),
+                ),
+              ],
             ),
           ),
         ],

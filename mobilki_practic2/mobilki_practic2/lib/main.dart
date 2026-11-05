@@ -35,9 +35,7 @@ class NotesApp extends StatelessWidget {
         ),
         // Cubit живёт столько же, сколько приложение, поэтому выбранная
         // тема не сбрасывается при перестройке интерфейса.
-        BlocProvider<ThemeCubit>(
-          create: (_) => ThemeCubit(),
-        ),
+        BlocProvider<ThemeCubit>(create: (_) => ThemeCubit()),
       ],
       child: BlocBuilder<ThemeCubit, ThemeState>(
         // MaterialApp пересобирается на каждое новое состояние темы,
